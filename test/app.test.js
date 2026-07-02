@@ -93,6 +93,41 @@ test("sends command events to selected subscriptions", async () => {
   expect(pushClient.sendNotification).toHaveBeenCalledTimes(1);
 });
 
+test("disables gone subscriptions after push failures", async () => {
+  const { app, pushClient } = testHarness();
+  pushClient.sendNotification.mockRejectedValue({ statusCode: 410 });
+  const pairingResponse = await request(app)
+    .post("/api/pairings")
+    .set("Authorization", "Bearer secret")
+    .set("Host", "notify.example.com")
+    .set("X-Forwarded-Proto", "https")
+    .send({})
+    .expect(201);
+  const linkedResponse = await request(app)
+    .post("/api/push-subscriptions")
+    .send({
+      pairingId: pairingResponse.body.pairingId,
+      pairingCode: pairingResponse.body.pairingCode,
+      subscription: { endpoint: "https://push.example.com", keys: {} },
+    })
+    .expect(201);
+
+  const response = await request(app)
+    .post("/api/test-notifications")
+    .set("Authorization", "Bearer secret")
+    .send({ targetDeviceIds: [linkedResponse.body.device.id] })
+    .expect(200);
+
+  expect(response.body).toEqual({ sent: 0, failed: 1, disabled: 1 });
+
+  await request(app)
+    .post("/api/test-notifications")
+    .set("Authorization", "Bearer secret")
+    .send({ targetDeviceIds: [linkedResponse.body.device.id] })
+    .expect(200);
+  expect(pushClient.sendNotification).toHaveBeenCalledTimes(1);
+});
+
 test("requires desktop auth for protected endpoints", async () => {
   const { app } = testHarness();
   await request(app).get("/api/devices").expect(401);

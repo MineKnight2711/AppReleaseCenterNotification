@@ -13,13 +13,11 @@ const {
   shouldDisableSubscription,
   stringValue,
 } = require("./helpers");
-const { JsonNotificationStore } = require("./store");
+const { createNotificationStore } = require("./store_factory");
 
 function createApp(options = {}) {
   const config = options.config || process.env;
-  const store =
-    options.store ||
-    new JsonNotificationStore(config.STORE_FILE || "./data/notifications-store.json");
+  const store = options.store || createNotificationStore(config);
   const pushClient = options.pushClient || webpush;
   const app = express();
 

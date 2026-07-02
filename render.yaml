@@ -17,5 +17,7 @@ services:
         sync: false
       - key: DESKTOP_API_TOKEN
         sync: false
-      - key: STORE_FILE
-        value: ./data/notifications-store.json
+      - key: FIREBASE_PROJECT_ID
+        value: app-release-center
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON_B64
+        sync: false

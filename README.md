@@ -1,7 +1,8 @@
 # Release Command Web Push
 
 Self-hosted Web Push notification server for App Release Center. This replaces
-the Firebase Functions/Hosting/Firestore version with a plain Node.js service.
+Firebase Functions/Hosting with a plain Node.js service, and can use Firestore
+for persistent device links.
 
 ## Local Setup
 
@@ -24,6 +25,8 @@ VAPID_PRIVATE_KEY=private_key_from_web_push
 VAPID_SUBJECT=mailto:you@example.com
 DESKTOP_API_TOKEN=a_long_random_secret
 STORE_FILE=./data/notifications-store.json
+FIREBASE_PROJECT_ID=
+FIREBASE_SERVICE_ACCOUNT_JSON_B64=
 ```
 
 `PUBLIC_BASE_URL` is optional. Leave it empty on Render; the server will use the
@@ -38,6 +41,9 @@ PUBLIC_BASE_URL=http://localhost:8080
 Web Push on phones needs HTTPS in real use, so deploy behind an HTTPS domain
 before scanning the QR from mobile.
 
+Local runs use the JSON `STORE_FILE` by default. To test Firestore locally, set
+`FIREBASE_PROJECT_ID` and `FIREBASE_SERVICE_ACCOUNT_JSON_B64`.
+
 ## Deploy Options
 
 Any Node.js host works: VPS, Render, Railway, Fly.io, Docker, or a company
@@ -45,7 +51,7 @@ server. The service only needs:
 
 - Node.js 20+
 - HTTPS public URL
-- Persistent storage for `STORE_FILE`
+- Firestore credentials, or persistent storage for the JSON fallback
 - Environment variables from `.env.example`
 
 ### Render
@@ -64,14 +70,28 @@ VAPID_PUBLIC_KEY=public_key_from_web_push
 VAPID_PRIVATE_KEY=private_key_from_web_push
 VAPID_SUBJECT=mailto:you@example.com
 DESKTOP_API_TOKEN=a_long_random_secret
+FIREBASE_PROJECT_ID=app-release-center
+FIREBASE_SERVICE_ACCOUNT_JSON_B64=base64_encoded_service_account_json
 ```
 
-Free Render services use ephemeral disk, so linked phones can be lost after a
-redeploy. For stable device links, upgrade the service and attach a persistent
-disk mounted at `/data`, then set:
+When `FIREBASE_PROJECT_ID` or `FIREBASE_SERVICE_ACCOUNT_JSON_B64` is present,
+the server stores pairings, linked devices, and push subscriptions in Firestore:
 
 ```text
-STORE_FILE=/data/notifications-store.json
+pairingSessions/{pairingId}
+devices/{deviceId}
+pushSubscriptions/{deviceId}
+```
+
+This keeps linked phones after Render sleeps, restarts, or redeploys. If
+Firestore env vars are absent, the server falls back to `STORE_FILE`; Free
+Render services use ephemeral disk, so that fallback can lose linked phones.
+
+Create the base64 service account value from a downloaded Firebase service
+account JSON file with PowerShell:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("firebase-service-account.json"))
 ```
 
 Docker:
