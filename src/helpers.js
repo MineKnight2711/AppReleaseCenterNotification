@@ -3,6 +3,8 @@ const crypto = require("crypto");
 const MAX_COMMAND_LABEL_LENGTH = 56;
 const MAX_LOG_TAIL_LINES = 20;
 const MAX_LOG_TAIL_BYTES = 4096;
+const MAX_REMOTE_LOG_LINES = 500;
+const MAX_REMOTE_LOG_BYTES = 128 * 1024;
 
 function buildCommandPayload(event, options = {}) {
   const eventName = stringValue(event.event) || stringValue(event.status);
@@ -132,8 +134,19 @@ function randomId() {
   return crypto.randomBytes(12).toString("hex");
 }
 
+function randomToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
 function randomCode() {
   return crypto.randomBytes(4).toString("hex").toUpperCase();
+}
+
+function secretHash(value) {
+  return crypto
+    .createHash("sha256")
+    .update(stringValue(value))
+    .digest("hex");
 }
 
 function shouldDisableSubscription(error) {
@@ -255,6 +268,32 @@ function trimLogTailToBytes(lines) {
   }
 }
 
+function normalizeRemoteLogLines(value) {
+  if (!Array.isArray(value)) return [];
+  const lines = value
+    .map((entry) => stringValue(entry))
+    .filter((entry) => entry.length > 0)
+    .slice(-MAX_REMOTE_LOG_LINES);
+  trimLinesToBytes(lines, MAX_REMOTE_LOG_BYTES);
+  return lines;
+}
+
+function trimLinesToBytes(lines, maxBytes) {
+  while (
+    lines.length > 1 &&
+    Buffer.byteLength(JSON.stringify(lines), "utf8") > maxBytes
+  ) {
+    lines.shift();
+  }
+
+  if (
+    lines.length === 1 &&
+    Buffer.byteLength(JSON.stringify(lines), "utf8") > maxBytes
+  ) {
+    lines[0] = `...${lines[0].slice(-maxBytes + 16)}`;
+  }
+}
+
 function truncateMiddle(value, maxLength) {
   if (value.length <= maxLength) return value;
   const left = Math.ceil((maxLength - 1) / 2);
@@ -280,8 +319,11 @@ module.exports = {
   isValidCommandRunSignature,
   isExpiredIso,
   normalizeLogTail,
+  normalizeRemoteLogLines,
   randomCode,
   randomId,
+  randomToken,
+  secretHash,
   shouldDisableSubscription,
   stringValue,
 };

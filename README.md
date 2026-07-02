@@ -1,8 +1,9 @@
-# Release Command Web Push
+# Release Command Relay
 
-Self-hosted Web Push notification server for App Release Center. This replaces
-Firebase Functions/Hosting with a plain Node.js service, and can use Firestore
-for persistent device links.
+Self-hosted Web Push and remote-command relay for App Release Center. This
+replaces Firebase Functions/Hosting with a plain Node.js service, and can use
+Firestore for persistent device links, desktop heartbeat state, and queued
+remote commands.
 
 ## Local Setup
 
@@ -80,12 +81,15 @@ FIREBASE_SERVICE_ACCOUNT_JSON_B64=base64_encoded_service_account_json
 server falls back to `DESKTOP_API_TOKEN`.
 
 When `FIREBASE_PROJECT_ID` or `FIREBASE_SERVICE_ACCOUNT_JSON_B64` is present,
-the server stores pairings, linked devices, and push subscriptions in Firestore:
+the server stores pairings, linked devices, push subscriptions, desktop state,
+and remote commands in Firestore:
 
 ```text
 pairingSessions/{pairingId}
 devices/{deviceId}
 pushSubscriptions/{deviceId}
+desktopStates/{desktopId}
+remoteCommands/{commandId}
 ```
 
 This keeps linked phones after Render sleeps, restarts, or redeploys. If
@@ -118,7 +122,18 @@ The API remains compatible with the desktop app:
 - `POST /api/pairings`
 - `GET /api/pairings/:pairingId`
 - `POST /api/push-subscriptions`
+- `POST /api/control-devices`
 - `GET /api/devices`
 - `DELETE /api/devices/:deviceId`
 - `POST /api/test-notifications`
 - `POST /api/command-events`
+- `POST /api/desktop/heartbeat`
+- `GET /api/desktop/commands`
+- `POST /api/desktop/commands/:commandId/claim`
+- `POST /api/desktop/commands/:commandId/events`
+- `GET /api/desktop/commands/:commandId/inputs`
+- `GET /api/mobile/desktop-state`
+- `POST /api/mobile/commands`
+- `GET /api/mobile/commands/:commandId`
+- `POST /api/mobile/commands/:commandId/input`
+- `POST /api/mobile/commands/:commandId/stop`

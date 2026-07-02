@@ -119,6 +119,108 @@ test("sends command events to selected subscriptions", async () => {
     .expect(403);
 });
 
+test("pairs native mobile device and relays remote shell command", async () => {
+  const { app } = testHarness();
+  const pairingResponse = await request(app)
+    .post("/api/pairings")
+    .set("Authorization", "Bearer secret")
+    .send({ source: "desktop" })
+    .expect(201);
+
+  const linkedResponse = await request(app)
+    .post("/api/control-devices")
+    .send({
+      pairingId: pairingResponse.body.pairingId,
+      pairingCode: pairingResponse.body.pairingCode,
+      deviceName: "Pixel",
+      platform: "Android",
+    })
+    .expect(201);
+  const token = linkedResponse.body.deviceControlToken;
+  expect(token).toHaveLength(64);
+
+  await request(app)
+    .post("/api/desktop/heartbeat")
+    .set("Authorization", "Bearer secret")
+    .send({
+      desktopId: "default",
+      displayName: "Windows PC",
+      state: { projects: [{ path: "C:\\Demo", name: "Demo" }] },
+    })
+    .expect(200);
+
+  const desktopState = await request(app)
+    .get("/api/mobile/desktop-state")
+    .set("Authorization", `Bearer ${token}`)
+    .expect(200);
+  expect(desktopState.body.desktop.displayName).toBe("Windows PC");
+  expect(desktopState.body.desktop.online).toBe(true);
+
+  const commandResponse = await request(app)
+    .post("/api/mobile/commands")
+    .set("Authorization", `Bearer ${token}`)
+    .send({
+      type: "shell",
+      payload: {
+        command: "Get-Date",
+        workingDirectory: "C:\\Demo",
+      },
+    })
+    .expect(201);
+  const commandId = commandResponse.body.command.commandId;
+  expect(commandResponse.body.command.status).toBe("queued");
+
+  const pending = await request(app)
+    .get("/api/desktop/commands?desktopId=default")
+    .set("Authorization", "Bearer secret")
+    .expect(200);
+  expect(pending.body.commands.map((command) => command.commandId)).toContain(
+    commandId,
+  );
+
+  await request(app)
+    .post(`/api/desktop/commands/${commandId}/claim`)
+    .set("Authorization", "Bearer secret")
+    .send({ desktopId: "default" })
+    .expect(200);
+
+  await request(app)
+    .post(`/api/mobile/commands/${commandId}/input`)
+    .set("Authorization", `Bearer ${token}`)
+    .send({ value: "y" })
+    .expect(201);
+  const inputs = await request(app)
+    .get(`/api/desktop/commands/${commandId}/inputs?afterSequence=0`)
+    .set("Authorization", "Bearer secret")
+    .expect(200);
+  expect(inputs.body.inputs).toEqual([
+    expect.objectContaining({ sequence: 1, kind: "stdin", value: "y" }),
+  ]);
+
+  await request(app)
+    .post(`/api/desktop/commands/${commandId}/events`)
+    .set("Authorization", "Bearer secret")
+    .send({
+      status: "completed",
+      exitCode: 0,
+      logLines: ["done"],
+      finishedAt: "2026-07-02T00:00:05.000Z",
+    })
+    .expect(200);
+
+  const finalResponse = await request(app)
+    .get(`/api/mobile/commands/${commandId}`)
+    .set("Authorization", `Bearer ${token}`)
+    .expect(200);
+  expect(finalResponse.body.command.status).toBe("completed");
+  expect(finalResponse.body.command.logLines).toEqual(["done"]);
+});
+
+test("requires mobile auth for mobile relay endpoints", async () => {
+  const { app } = testHarness();
+  await request(app).get("/api/mobile/desktop-state").expect(401);
+});
+
 test("disables gone subscriptions after push failures", async () => {
   const { app, pushClient } = testHarness();
   pushClient.sendNotification.mockRejectedValue({ statusCode: 410 });

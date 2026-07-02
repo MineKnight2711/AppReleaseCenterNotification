@@ -46,14 +46,16 @@ class JsonNotificationStore {
       const pairing = state.pairings[pairingId];
       if (!pairing) throw new Error("Pairing session not found.");
       state.devices[device.id] = device;
-      state.subscriptions[device.id] = {
-        deviceId: device.id,
-        subscription,
-        endpoint: subscription.endpoint,
-        enabled: true,
-        createdAt: device.linkedAt,
-        lastSeenAt: device.lastSeenAt,
-      };
+      if (subscription && subscription.endpoint) {
+        state.subscriptions[device.id] = {
+          deviceId: device.id,
+          subscription,
+          endpoint: subscription.endpoint,
+          enabled: true,
+          createdAt: device.linkedAt,
+          lastSeenAt: device.lastSeenAt,
+        };
+      }
       pairing.status = "linked";
       pairing.deviceId = device.id;
       pairing.linkedAt = device.linkedAt;
@@ -138,6 +140,104 @@ class JsonNotificationStore {
     });
   }
 
+  async findDeviceByControlTokenHash(tokenHash) {
+    const state = await this._read();
+    return (
+      Object.values(state.devices).find(
+        (device) => device.controlTokenHash === tokenHash,
+      ) || null
+    );
+  }
+
+  async upsertDesktopState(desktop) {
+    return this._update((state) => {
+      state.desktops[desktop.desktopId] = {
+        ...(state.desktops[desktop.desktopId] || {}),
+        ...desktop,
+      };
+      return state.desktops[desktop.desktopId];
+    });
+  }
+
+  async getDesktopState(desktopId) {
+    const state = await this._read();
+    return state.desktops[desktopId] || null;
+  }
+
+  async listDesktopStates() {
+    const state = await this._read();
+    return Object.values(state.desktops).sort((a, b) => {
+      return new Date(b.lastSeenAt || 0).getTime() - new Date(a.lastSeenAt || 0).getTime();
+    });
+  }
+
+  async createRemoteCommand(command) {
+    return this._update((state) => {
+      state.remoteCommands[command.commandId] = command;
+      return command;
+    });
+  }
+
+  async getRemoteCommand(commandId) {
+    const state = await this._read();
+    return state.remoteCommands[commandId] || null;
+  }
+
+  async listRemoteCommands({ status, targetDesktopId, limit = 20 } = {}) {
+    const state = await this._read();
+    return Object.values(state.remoteCommands)
+      .filter((command) => !status || command.status === status)
+      .filter(
+        (command) =>
+          !targetDesktopId ||
+          !command.targetDesktopId ||
+          command.targetDesktopId === targetDesktopId,
+      )
+      .sort((a, b) => commandMillis(a) - commandMillis(b))
+      .slice(0, limit);
+  }
+
+  async claimRemoteCommand(commandId, desktopId, claimedAt) {
+    return this._update((state) => {
+      const command = state.remoteCommands[commandId];
+      if (!command || command.status !== "queued") return null;
+      command.status = "claimed";
+      command.claimedByDesktopId = desktopId;
+      command.claimedAt = claimedAt;
+      command.updatedAt = claimedAt;
+      return command;
+    });
+  }
+
+  async updateRemoteCommand(commandId, patch) {
+    return this._update((state) => {
+      const command = state.remoteCommands[commandId];
+      if (!command) return null;
+      state.remoteCommands[commandId] = { ...command, ...patch };
+      return state.remoteCommands[commandId];
+    });
+  }
+
+  async appendRemoteCommandInput(commandId, input) {
+    return this._update((state) => {
+      const command = state.remoteCommands[commandId];
+      if (!command) return null;
+      const inputs = Array.isArray(command.inputs) ? command.inputs : [];
+      const sequence = inputs.length === 0 ? 1 : Number(inputs[inputs.length - 1].sequence || 0) + 1;
+      const entry = { ...input, sequence };
+      command.inputs = inputs.concat([entry]).slice(-100);
+      command.updatedAt = input.createdAt || new Date().toISOString();
+      return entry;
+    });
+  }
+
+  async listRemoteCommandInputs(commandId, afterSequence = 0) {
+    const state = await this._read();
+    const command = state.remoteCommands[commandId];
+    if (!command || !Array.isArray(command.inputs)) return [];
+    return command.inputs.filter((input) => Number(input.sequence || 0) > afterSequence);
+  }
+
   async _update(mutator) {
     this._pendingWrite = this._pendingWrite.then(async () => {
       const state = await this._read();
@@ -185,6 +285,8 @@ function normalizeState(value) {
     devices: objectValue(value.devices),
     subscriptions: objectValue(value.subscriptions),
     commandRuns: objectValue(value.commandRuns),
+    desktops: objectValue(value.desktops),
+    remoteCommands: objectValue(value.remoteCommands),
   };
 }
 
@@ -195,7 +297,19 @@ function objectValue(value) {
 }
 
 function emptyState() {
-  return { pairings: {}, devices: {}, subscriptions: {}, commandRuns: {} };
+  return {
+    pairings: {},
+    devices: {},
+    subscriptions: {},
+    commandRuns: {},
+    desktops: {},
+    remoteCommands: {},
+  };
+}
+
+function commandMillis(command) {
+  const millis = Date.parse(command.createdAt || command.updatedAt || 0);
+  return Number.isNaN(millis) ? 0 : millis;
 }
 
 module.exports = {

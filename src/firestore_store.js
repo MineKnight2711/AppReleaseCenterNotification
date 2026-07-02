@@ -56,14 +56,16 @@ class FirestoreNotificationStore {
       if (!pairingSnapshot.exists) throw new Error("Pairing session not found.");
 
       transaction.set(this._deviceRef(device.id), device);
-      transaction.set(this._subscriptionRef(device.id), {
-        deviceId: device.id,
-        subscription,
-        endpoint: subscription.endpoint,
-        enabled: true,
-        createdAt: device.linkedAt,
-        lastSeenAt: device.lastSeenAt,
-      });
+      if (subscription && subscription.endpoint) {
+        transaction.set(this._subscriptionRef(device.id), {
+          deviceId: device.id,
+          subscription,
+          endpoint: subscription.endpoint,
+          enabled: true,
+          createdAt: device.linkedAt,
+          lastSeenAt: device.lastSeenAt,
+        });
+      }
       transaction.update(pairingRef, {
         status: "linked",
         deviceId: device.id,
@@ -146,6 +148,109 @@ class FirestoreNotificationStore {
     return removed;
   }
 
+  async findDeviceByControlTokenHash(tokenHash) {
+    const snapshot = await this.db
+      .collection("devices")
+      .where("controlTokenHash", "==", tokenHash)
+      .limit(1)
+      .get();
+    return snapshot.docs.length === 0 ? null : snapshot.docs[0].data();
+  }
+
+  async upsertDesktopState(desktop) {
+    await this._desktopRef(desktop.desktopId).set(desktop, { merge: true });
+    const snapshot = await this._desktopRef(desktop.desktopId).get();
+    return snapshot.exists ? snapshot.data() : desktop;
+  }
+
+  async getDesktopState(desktopId) {
+    const snapshot = await this._desktopRef(desktopId).get();
+    return snapshot.exists ? snapshot.data() : null;
+  }
+
+  async listDesktopStates() {
+    const snapshot = await this.db
+      .collection("desktopStates")
+      .orderBy("lastSeenAt", "desc")
+      .get();
+    return snapshot.docs.map((doc) => doc.data());
+  }
+
+  async createRemoteCommand(command) {
+    await this._remoteCommandRef(command.commandId).set(command);
+    return command;
+  }
+
+  async getRemoteCommand(commandId) {
+    const snapshot = await this._remoteCommandRef(commandId).get();
+    return snapshot.exists ? snapshot.data() : null;
+  }
+
+  async listRemoteCommands({ status, targetDesktopId, limit = 20 } = {}) {
+    let query = this.db.collection("remoteCommands");
+    if (status) query = query.where("status", "==", status);
+    if (targetDesktopId) query = query.where("targetDesktopId", "==", targetDesktopId);
+    const snapshot = await query.orderBy("createdAt", "asc").limit(limit).get();
+    return snapshot.docs.map((doc) => doc.data());
+  }
+
+  async claimRemoteCommand(commandId, desktopId, claimedAt) {
+    let claimed = null;
+    await this.db.runTransaction(async (transaction) => {
+      const ref = this._remoteCommandRef(commandId);
+      const snapshot = await transaction.get(ref);
+      if (!snapshot.exists) return;
+      const command = snapshot.data();
+      if (command.status !== "queued") return;
+      claimed = {
+        ...command,
+        status: "claimed",
+        claimedByDesktopId: desktopId,
+        claimedAt,
+        updatedAt: claimedAt,
+      };
+      transaction.set(ref, claimed);
+    });
+    return claimed;
+  }
+
+  async updateRemoteCommand(commandId, patch) {
+    const ref = this._remoteCommandRef(commandId);
+    const snapshot = await ref.get();
+    if (!snapshot.exists) return null;
+    await ref.set(patch, { merge: true });
+    return (await ref.get()).data();
+  }
+
+  async appendRemoteCommandInput(commandId, input) {
+    const ref = this._remoteCommandRef(commandId);
+    let entry = null;
+    await this.db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(ref);
+      if (!snapshot.exists) return;
+      const command = snapshot.data();
+      const inputs = Array.isArray(command.inputs) ? command.inputs : [];
+      const sequence =
+        inputs.length === 0
+          ? 1
+          : Number(inputs[inputs.length - 1].sequence || 0) + 1;
+      entry = { ...input, sequence };
+      transaction.update(ref, {
+        inputs: inputs.concat([entry]).slice(-100),
+        updatedAt: input.createdAt || new Date().toISOString(),
+      });
+    });
+    return entry;
+  }
+
+  async listRemoteCommandInputs(commandId, afterSequence = 0) {
+    const command = await this.getRemoteCommand(commandId);
+    if (!command || !Array.isArray(command.inputs)) return [];
+    return command.inputs.filter(
+      (input) => Number(input.sequence || 0) > afterSequence,
+    );
+  }
+
   _pairingRef(pairingId) {
     return this.db.collection("pairingSessions").doc(pairingId);
   }
@@ -160,6 +265,14 @@ class FirestoreNotificationStore {
 
   _commandRunRef(runId) {
     return this.db.collection("commandRuns").doc(runId);
+  }
+
+  _desktopRef(desktopId) {
+    return this.db.collection("desktopStates").doc(desktopId);
+  }
+
+  _remoteCommandRef(commandId) {
+    return this.db.collection("remoteCommands").doc(commandId);
   }
 }
 

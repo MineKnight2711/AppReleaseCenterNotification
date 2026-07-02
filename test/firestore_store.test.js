@@ -157,6 +157,57 @@ test("firestore store cleans up old command runs and keeps recent runs", async (
   expect(await store.getCommandRun("recent-2")).toBeNull();
 });
 
+test("firestore store saves desktop state and remote command queue", async () => {
+  const store = new FirestoreNotificationStore(new FakeFirestore());
+
+  await store.upsertDesktopState({
+    desktopId: "default",
+    displayName: "Windows PC",
+    lastSeenAt: "2026-07-02T00:00:00.000Z",
+    state: { projects: [] },
+  });
+  expect((await store.listDesktopStates())[0].displayName).toBe("Windows PC");
+
+  await store.createRemoteCommand({
+    commandId: "cmd-1",
+    type: "shell",
+    status: "queued",
+    targetDesktopId: "default",
+    createdByDeviceId: "device-1",
+    createdAt: "2026-07-02T00:00:00.000Z",
+    updatedAt: "2026-07-02T00:00:00.000Z",
+    payload: { command: "Get-Date" },
+    inputs: [],
+  });
+
+  expect(await store.listRemoteCommands({ status: "queued", targetDesktopId: "default" })).toHaveLength(1);
+  expect(
+    await store.claimRemoteCommand(
+      "cmd-1",
+      "default",
+      "2026-07-02T00:00:01.000Z",
+    ),
+  ).toEqual(expect.objectContaining({ status: "claimed" }));
+  expect(await store.claimRemoteCommand("cmd-1", "default", "later")).toBeNull();
+
+  await store.appendRemoteCommandInput("cmd-1", {
+    kind: "stdin",
+    value: "y",
+    createdAt: "2026-07-02T00:00:02.000Z",
+  });
+  expect(await store.listRemoteCommandInputs("cmd-1", 0)).toEqual([
+    expect.objectContaining({ sequence: 1, value: "y" }),
+  ]);
+
+  await store.updateRemoteCommand("cmd-1", {
+    status: "completed",
+    logLines: ["done"],
+  });
+  expect(await store.getRemoteCommand("cmd-1")).toEqual(
+    expect.objectContaining({ status: "completed", logLines: ["done"] }),
+  );
+});
+
 test("store factory falls back to json store without firestore config", () => {
   const store = createNotificationStore({
     STORE_FILE: path.join(os.tmpdir(), `arc-notify-${Date.now()}.json`),
