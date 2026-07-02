@@ -203,8 +203,14 @@ function createApp(options = {}) {
     const statusCode = Number.isInteger(error.statusCode)
       ? error.statusCode
       : 500;
+    if (statusCode >= 500) {
+      console.error(error);
+    }
     res.status(statusCode).json({
-      error: statusCode === 500 ? "Notification server error." : error.message,
+      error:
+        statusCode === 500 && !error.expose
+          ? "Notification server error."
+          : error.message,
     });
   });
 
@@ -257,11 +263,27 @@ function configureWebPush(config, pushClient) {
   const privateKey = stringValue(config.VAPID_PRIVATE_KEY);
   const subject = stringValue(config.VAPID_SUBJECT) || "mailto:release@example.com";
 
-  if (!publicKey || !privateKey) {
-    throw new Error("VAPID keys are not configured.");
+  if (!publicKey) {
+    throw clientConfigurationError("VAPID_PUBLIC_KEY is not configured.");
+  }
+  if (!privateKey) {
+    throw clientConfigurationError("VAPID_PRIVATE_KEY is not configured.");
   }
 
-  pushClient.setVapidDetails(subject, publicKey, privateKey);
+  try {
+    pushClient.setVapidDetails(subject, publicKey, privateKey);
+  } catch (error) {
+    throw clientConfigurationError(
+      `Web Push VAPID configuration is invalid: ${error.message}`,
+    );
+  }
+}
+
+function clientConfigurationError(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  error.expose = true;
+  return error;
 }
 
 function requireDesktopAuth(config) {

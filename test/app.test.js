@@ -97,3 +97,59 @@ test("requires desktop auth for protected endpoints", async () => {
   const { app } = testHarness();
   await request(app).get("/api/devices").expect(401);
 });
+
+test("returns clear error when VAPID private key is missing", async () => {
+  const store = new JsonNotificationStore(
+    path.join(os.tmpdir(), `arc-notify-${Date.now()}-${Math.random()}.json`),
+  );
+  const pushClient = {
+    setVapidDetails: jest.fn(),
+    sendNotification: jest.fn().mockResolvedValue(undefined),
+  };
+  const app = createApp({
+    store,
+    pushClient,
+    config: {
+      VAPID_PUBLIC_KEY: "public",
+      VAPID_PRIVATE_KEY: "",
+      DESKTOP_API_TOKEN: "secret",
+    },
+  });
+
+  const response = await request(app)
+    .post("/api/test-notifications")
+    .set("Authorization", "Bearer secret")
+    .send({ targetDeviceIds: ["phone-1"] })
+    .expect(400);
+
+  expect(response.body.error).toBe("VAPID_PRIVATE_KEY is not configured.");
+});
+
+test("returns clear error when VAPID keys are invalid", async () => {
+  const store = new JsonNotificationStore(
+    path.join(os.tmpdir(), `arc-notify-${Date.now()}-${Math.random()}.json`),
+  );
+  const pushClient = {
+    setVapidDetails: jest.fn(() => {
+      throw new Error("invalid key");
+    }),
+    sendNotification: jest.fn().mockResolvedValue(undefined),
+  };
+  const app = createApp({
+    store,
+    pushClient,
+    config: {
+      VAPID_PUBLIC_KEY: "public",
+      VAPID_PRIVATE_KEY: "private",
+      DESKTOP_API_TOKEN: "secret",
+    },
+  });
+
+  const response = await request(app)
+    .post("/api/test-notifications")
+    .set("Authorization", "Bearer secret")
+    .send({ targetDeviceIds: ["phone-1"] })
+    .expect(400);
+
+  expect(response.body.error).toContain("Web Push VAPID configuration is invalid");
+});
