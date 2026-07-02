@@ -18,7 +18,7 @@ Set `.env` like this:
 
 ```env
 PORT=8080
-PUBLIC_BASE_URL=https://your-public-domain.example.com
+PUBLIC_BASE_URL=
 VAPID_PUBLIC_KEY=public_key_from_web_push
 VAPID_PRIVATE_KEY=private_key_from_web_push
 VAPID_SUBJECT=mailto:you@example.com
@@ -26,7 +26,10 @@ DESKTOP_API_TOKEN=a_long_random_secret
 STORE_FILE=./data/notifications-store.json
 ```
 
-For local testing, use:
+`PUBLIC_BASE_URL` is optional. Leave it empty on Render; the server will use the
+incoming request host so pairing links match the active Render URL.
+
+For local testing, you may use:
 
 ```env
 PUBLIC_BASE_URL=http://localhost:8080
@@ -57,15 +60,11 @@ This server repository includes a root-level `render.yaml` Blueprint. In Render:
 Use these values:
 
 ```text
-PUBLIC_BASE_URL=https://app-release-center-notifications.onrender.com
 VAPID_PUBLIC_KEY=public_key_from_web_push
 VAPID_PRIVATE_KEY=private_key_from_web_push
 VAPID_SUBJECT=mailto:you@example.com
 DESKTOP_API_TOKEN=a_long_random_secret
 ```
-
-If Render appends a suffix to the service name, use the actual `.onrender.com`
-URL it shows for `PUBLIC_BASE_URL`.
 
 Free Render services use ephemeral disk, so linked phones can be lost after a
 redeploy. For stable device links, upgrade the service and attach a persistent

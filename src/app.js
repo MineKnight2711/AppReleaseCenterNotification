@@ -281,10 +281,13 @@ function requireDesktopAuth(config) {
 }
 
 function publicBaseUrl(config, req) {
+  const proto = req.get("x-forwarded-proto") || req.protocol || "https";
+  const host = req.get("x-forwarded-host") || req.get("host");
+  if (host) return `${proto}://${host}`;
+
   const configured = stringValue(config.PUBLIC_BASE_URL);
   if (configured) return configured;
-  const proto = req.get("x-forwarded-proto") || req.protocol || "https";
-  return `${proto}://${req.get("host")}`;
+  return "http://localhost:8080";
 }
 
 module.exports = {

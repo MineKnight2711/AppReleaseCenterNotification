@@ -21,7 +21,7 @@ function testHarness() {
       VAPID_PRIVATE_KEY: "private",
       VAPID_SUBJECT: "mailto:test@example.com",
       DESKTOP_API_TOKEN: "secret",
-      PUBLIC_BASE_URL: "https://notify.example.com",
+      PUBLIC_BASE_URL: "https://wrong.example.com",
     },
   });
   return { app, store, pushClient };
@@ -32,6 +32,8 @@ test("creates pairing and links phone subscription", async () => {
   const pairingResponse = await request(app)
     .post("/api/pairings")
     .set("Authorization", "Bearer secret")
+    .set("Host", "notify.example.com")
+    .set("X-Forwarded-Proto", "https")
     .send({ source: "desktop" })
     .expect(201);
 
@@ -63,6 +65,8 @@ test("sends command events to selected subscriptions", async () => {
   const pairingResponse = await request(app)
     .post("/api/pairings")
     .set("Authorization", "Bearer secret")
+    .set("Host", "notify.example.com")
+    .set("X-Forwarded-Proto", "https")
     .send({})
     .expect(201);
   const linkedResponse = await request(app)
