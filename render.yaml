@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: app-release-center-notifications
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/config
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+      - key: DESKTOP_API_TOKEN
+        sync: false
+      - key: STORE_FILE
+        value: ./data/notifications-store.json

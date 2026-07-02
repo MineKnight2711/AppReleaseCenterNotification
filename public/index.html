@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <title>App Release Center Phone Link</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #0f172a;
+        color: #eef6ff;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100svh;
+        display: grid;
+        place-items: center;
+        background:
+          linear-gradient(135deg, rgba(14, 165, 233, 0.18), transparent 42%),
+          linear-gradient(315deg, rgba(34, 197, 94, 0.14), transparent 38%),
+          #0f172a;
+      }
+
+      main {
+        width: min(92vw, 420px);
+        padding: 28px;
+        border: 1px solid rgba(148, 163, 184, 0.34);
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.88);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 24px;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0 0 18px;
+        color: #b8c5d8;
+        line-height: 1.45;
+      }
+
+      label {
+        display: block;
+        margin: 14px 0 6px;
+        color: #dbeafe;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      input {
+        box-sizing: border-box;
+        width: 100%;
+        border: 1px solid rgba(148, 163, 184, 0.45);
+        border-radius: 10px;
+        padding: 13px 14px;
+        background: rgba(2, 6, 23, 0.55);
+        color: #f8fafc;
+        font: inherit;
+      }
+
+      button {
+        width: 100%;
+        margin-top: 18px;
+        border: 0;
+        border-radius: 10px;
+        padding: 13px 16px;
+        color: #06121f;
+        background: #7dd3fc;
+        font: inherit;
+        font-weight: 800;
+      }
+
+      button:disabled {
+        opacity: 0.55;
+      }
+
+      .status {
+        margin-top: 16px;
+        padding: 12px;
+        border-radius: 10px;
+        background: rgba(2, 6, 23, 0.42);
+        color: #cbd5e1;
+        font-size: 13px;
+      }
+
+      .ios {
+        margin-top: 16px;
+        font-size: 12px;
+        color: #93c5fd;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>App Release Center</h1>
+      <p>Link this phone to receive release command notifications.</p>
+      <label for="pairing-code">Pairing code</label>
+      <input id="pairing-code" autocomplete="one-time-code" inputmode="text">
+      <label for="device-name">Device name</label>
+      <input id="device-name" autocomplete="nickname">
+      <button id="subscribe-button">Enable notifications</button>
+      <div id="status" class="status">Ready to link.</div>
+      <div class="ios">On iPhone, add this page to Home Screen before enabling notifications.</div>
+    </main>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
