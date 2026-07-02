@@ -189,9 +189,17 @@ class FirestoreNotificationStore {
   async listRemoteCommands({ status, targetDesktopId, limit = 20 } = {}) {
     let query = this.db.collection("remoteCommands");
     if (status) query = query.where("status", "==", status);
-    if (targetDesktopId) query = query.where("targetDesktopId", "==", targetDesktopId);
-    const snapshot = await query.orderBy("createdAt", "asc").limit(limit).get();
-    return snapshot.docs.map((doc) => doc.data());
+    const snapshot = await query.get();
+    return snapshot.docs
+      .map((doc) => doc.data())
+      .filter(
+        (command) =>
+          !targetDesktopId ||
+          !command.targetDesktopId ||
+          command.targetDesktopId === targetDesktopId,
+      )
+      .sort((left, right) => commandMillis(left) - commandMillis(right))
+      .slice(0, limit);
   }
 
   async claimRemoteCommand(commandId, desktopId, claimedAt) {
