@@ -153,3 +153,31 @@ test("returns clear error when VAPID keys are invalid", async () => {
 
   expect(response.body.error).toContain("Web Push VAPID configuration is invalid");
 });
+
+test("returns server error messages for notification failures", async () => {
+  const store = new JsonNotificationStore(
+    path.join(os.tmpdir(), `arc-notify-${Date.now()}-${Math.random()}.json`),
+  );
+  const pushClient = {
+    setVapidDetails: jest.fn(),
+    sendNotification: jest.fn().mockResolvedValue(undefined),
+  };
+  const app = createApp({
+    store,
+    pushClient,
+    config: {
+      VAPID_PUBLIC_KEY: "public",
+      VAPID_PRIVATE_KEY: "private",
+      DESKTOP_API_TOKEN: "secret",
+    },
+  });
+  jest.spyOn(store, "getSubscription").mockRejectedValue(new Error("store failed"));
+
+  const response = await request(app)
+    .post("/api/test-notifications")
+    .set("Authorization", "Bearer secret")
+    .send({ targetDeviceIds: ["phone-1"] })
+    .expect(500);
+
+  expect(response.body.error).toBe("store failed");
+});

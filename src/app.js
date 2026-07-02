@@ -207,10 +207,7 @@ function createApp(options = {}) {
       console.error(error);
     }
     res.status(statusCode).json({
-      error:
-        statusCode === 500 && !error.expose
-          ? "Notification server error."
-          : error.message,
+      error: error.message || "Notification server error.",
     });
   });
 
