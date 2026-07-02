@@ -99,6 +99,64 @@ test("firestore store touches, disables, and deletes subscriptions", async () =>
   expect(await store.listDevices()).toHaveLength(0);
 });
 
+test("firestore store upserts command runs", async () => {
+  const store = new FirestoreNotificationStore(new FakeFirestore());
+
+  await store.upsertCommandRun({
+    runId: "run-1",
+    status: "running",
+    projectName: "Demo",
+    commandLabel: "deploy",
+    startedAt: "2026-07-02T00:00:00.000Z",
+    targetDeviceIds: ["device-1"],
+    logTail: [],
+  });
+  await store.upsertCommandRun({
+    runId: "run-1",
+    status: "completed",
+    finishedAt: "2026-07-02T00:01:00.000Z",
+    durationMs: 60000,
+    exitCode: 0,
+    logTail: ["done"],
+  });
+
+  const run = await store.getCommandRun("run-1");
+  expect(run.status).toBe("completed");
+  expect(run.projectName).toBe("Demo");
+  expect(run.targetDeviceIds).toEqual(["device-1"]);
+  expect(run.logTail).toEqual(["done"]);
+});
+
+test("firestore store cleans up old command runs and keeps recent runs", async () => {
+  const store = new FirestoreNotificationStore(new FakeFirestore());
+
+  await store.upsertCommandRun({
+    runId: "old",
+    status: "completed",
+    updatedAt: "2026-06-01T00:00:00.000Z",
+  });
+  await store.upsertCommandRun({
+    runId: "recent-1",
+    status: "completed",
+    updatedAt: "2026-07-02T00:00:00.000Z",
+  });
+  await store.upsertCommandRun({
+    runId: "recent-2",
+    status: "completed",
+    updatedAt: "2026-07-01T00:00:00.000Z",
+  });
+
+  const removed = await store.cleanupCommandRuns({
+    olderThan: "2026-06-15T00:00:00.000Z",
+    maxCount: 1,
+  });
+
+  expect(removed).toBe(2);
+  expect(await store.getCommandRun("old")).toBeNull();
+  expect(await store.getCommandRun("recent-1")).not.toBeNull();
+  expect(await store.getCommandRun("recent-2")).toBeNull();
+});
+
 test("store factory falls back to json store without firestore config", () => {
   const store = createNotificationStore({
     STORE_FILE: path.join(os.tmpdir(), `arc-notify-${Date.now()}.json`),
@@ -243,8 +301,13 @@ class FakeDocRef {
     return new FakeDocSnapshot(this.key, this.db.records.get(this.key));
   }
 
-  async set(data) {
-    this.db.records.set(this.key, clone(data));
+  async set(data, options = {}) {
+    const next = clone(data);
+    if (options.merge && this.db.records.has(this.key)) {
+      this.db.records.set(this.key, { ...this.db.records.get(this.key), ...next });
+      return;
+    }
+    this.db.records.set(this.key, next);
   }
 
   async update(patch) {

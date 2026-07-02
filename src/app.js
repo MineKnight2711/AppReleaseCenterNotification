@@ -5,8 +5,12 @@ const webpush = require("web-push");
 
 const {
   buildCommandPayload,
+  commandRunFromEvent,
+  commandRunJson,
+  commandRunSignature,
   deviceIds,
   deviceJson,
+  isValidCommandRunSignature,
   isExpiredIso,
   randomCode,
   randomId,
@@ -14,6 +18,9 @@ const {
   stringValue,
 } = require("./helpers");
 const { createNotificationStore } = require("./store_factory");
+
+const COMMAND_RUN_RETENTION_DAYS = 14;
+const COMMAND_RUN_MAX_COUNT = 200;
 
 function createApp(options = {}) {
   const config = options.config || process.env;
@@ -179,19 +186,67 @@ function createApp(options = {}) {
     requireDesktopAuth(config),
     async (req, res, next) => {
       try {
+        const targetDeviceIds = deviceIds(req.body.targetDeviceIds);
+        const commandRun = await store.upsertCommandRun(
+          commandRunFromEvent(req.body, targetDeviceIds),
+        );
         const result = await sendToDevices({
           config,
           store,
           pushClient,
-          targetDeviceIds: deviceIds(req.body.targetDeviceIds),
-          payload: buildCommandPayload(req.body),
+          targetDeviceIds,
+          payloadForDevice: (deviceId) =>
+            buildCommandPayload(commandRun, {
+              url: commandRunDetailUrl(config, req, commandRun.runId, deviceId),
+            }),
         });
+        cleanupCommandRuns(store);
         res.json(result);
       } catch (error) {
         next(error);
       }
     },
   );
+
+  app.get("/api/command-runs/:runId", async (req, res, next) => {
+    try {
+      const runId = stringValue(req.params.runId);
+      const deviceId = stringValue(req.query.deviceId);
+      const signature = stringValue(req.query.sig);
+      const secret = detailViewSecret(config);
+      if (
+        !runId ||
+        !deviceId ||
+        !secret ||
+        !isValidCommandRunSignature(secret, runId, deviceId, signature)
+      ) {
+        res.status(403).json({
+          error: "This notification detail is no longer available.",
+        });
+        return;
+      }
+
+      const [run, subscription] = await Promise.all([
+        store.getCommandRun(runId),
+        store.getSubscription(deviceId),
+      ]);
+      if (
+        !run ||
+        !subscription ||
+        !Array.isArray(run.targetDeviceIds) ||
+        !run.targetDeviceIds.includes(deviceId)
+      ) {
+        res.status(404).json({
+          error: "This notification detail is no longer available.",
+        });
+        return;
+      }
+
+      res.json({ run: commandRunJson(run) });
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.get("*", (_req, res) => {
     res.sendFile(path.join(__dirname, "..", "public", "index.html"));
@@ -212,12 +267,28 @@ function createApp(options = {}) {
   return app;
 }
 
+function cleanupCommandRuns(store) {
+  if (typeof store.cleanupCommandRuns !== "function") return;
+  const olderThan = new Date(
+    Date.now() - COMMAND_RUN_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  store
+    .cleanupCommandRuns({
+      olderThan,
+      maxCount: COMMAND_RUN_MAX_COUNT,
+    })
+    .catch((error) => {
+      console.warn(`Command run cleanup failed: ${error.message}`);
+    });
+}
+
 async function sendToDevices({
   config,
   store,
   pushClient,
   targetDeviceIds,
   payload,
+  payloadForDevice,
 }) {
   if (targetDeviceIds.length === 0) {
     const error = new Error("targetDeviceIds is required.");
@@ -235,9 +306,12 @@ async function sendToDevices({
     if (!record || record.enabled === false) continue;
 
     try {
+      const outgoingPayload = payloadForDevice
+        ? await payloadForDevice(deviceId)
+        : payload;
       await pushClient.sendNotification(
         record.subscription,
-        JSON.stringify(payload),
+        JSON.stringify(outgoingPayload),
       );
       sent += 1;
       await store.touchSubscription(deviceId, new Date().toISOString());
@@ -251,6 +325,16 @@ async function sendToDevices({
   }
 
   return { sent, failed, disabled };
+}
+
+function commandRunDetailUrl(config, req, runId, deviceId) {
+  const url = new URL(`/runs/${encodeURIComponent(runId)}`, publicBaseUrl(config, req));
+  url.searchParams.set("deviceId", deviceId);
+  url.searchParams.set(
+    "sig",
+    commandRunSignature(detailViewSecret(config), runId, deviceId),
+  );
+  return `${url.pathname}${url.search}`;
 }
 
 function configureWebPush(config, pushClient) {
@@ -295,6 +379,10 @@ function requireDesktopAuth(config) {
     }
     next();
   };
+}
+
+function detailViewSecret(config) {
+  return stringValue(config.DETAIL_VIEW_SECRET) || stringValue(config.DESKTOP_API_TOKEN);
 }
 
 function publicBaseUrl(config, req) {

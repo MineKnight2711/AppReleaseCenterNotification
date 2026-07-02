@@ -103,6 +103,41 @@ class JsonNotificationStore {
     });
   }
 
+  async upsertCommandRun(run) {
+    return this._update((state) => {
+      const existing = state.commandRuns[run.runId] || {};
+      state.commandRuns[run.runId] = { ...existing, ...run };
+      return state.commandRuns[run.runId];
+    });
+  }
+
+  async getCommandRun(runId) {
+    const state = await this._read();
+    return state.commandRuns[runId] || null;
+  }
+
+  async cleanupCommandRuns({ olderThan, maxCount }) {
+    return this._update((state) => {
+      const entries = Object.entries(state.commandRuns).sort(([, left], [, right]) => {
+        return commandRunMillis(right) - commandRunMillis(left);
+      });
+      const olderThanMillis = Date.parse(olderThan);
+      let removed = 0;
+
+      entries.forEach(([runId, run], index) => {
+        const isOld =
+          !Number.isNaN(olderThanMillis) && commandRunMillis(run) < olderThanMillis;
+        const exceedsMax = Number.isInteger(maxCount) && index >= maxCount;
+        if (isOld || exceedsMax) {
+          delete state.commandRuns[runId];
+          removed += 1;
+        }
+      });
+
+      return removed;
+    });
+  }
+
   async _update(mutator) {
     this._pendingWrite = this._pendingWrite.then(async () => {
       const state = await this._read();
@@ -132,6 +167,11 @@ class JsonNotificationStore {
   }
 }
 
+function commandRunMillis(run) {
+  const millis = Date.parse(run.updatedAt || run.finishedAt || run.startedAt);
+  return Number.isNaN(millis) ? 0 : millis;
+}
+
 function validPendingPairing(pairing, pairingCode, isExpired) {
   if (!pairing || pairing.status !== "pending") return null;
   if (pairing.pairingCode !== pairingCode) return null;
@@ -144,6 +184,7 @@ function normalizeState(value) {
     pairings: objectValue(value.pairings),
     devices: objectValue(value.devices),
     subscriptions: objectValue(value.subscriptions),
+    commandRuns: objectValue(value.commandRuns),
   };
 }
 
@@ -154,7 +195,7 @@ function objectValue(value) {
 }
 
 function emptyState() {
-  return { pairings: {}, devices: {}, subscriptions: {} };
+  return { pairings: {}, devices: {}, subscriptions: {}, commandRuns: {} };
 }
 
 module.exports = {

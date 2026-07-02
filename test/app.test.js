@@ -82,15 +82,41 @@ test("sends command events to selected subscriptions", async () => {
     .post("/api/command-events")
     .set("Authorization", "Bearer secret")
     .send({
+      runId: "run-1",
       targetDeviceIds: [linkedResponse.body.device.id],
       event: "completed",
+      command: "fastlane android deploy",
       statusLabel: "deploy",
       projectName: "Demo",
+      startedAt: "2026-07-01T00:00:00.000Z",
+      finishedAt: "2026-07-01T00:00:05.000Z",
+      durationMs: 5000,
       exitCode: 0,
+      logTail: ["Deploy finished"],
     })
     .expect(200);
 
   expect(pushClient.sendNotification).toHaveBeenCalledTimes(1);
+  const payload = JSON.parse(pushClient.sendNotification.mock.calls[0][1]);
+  expect(payload.title).toBe("Completed: Deploy");
+  expect(payload.renotify).toBe(true);
+  expect(payload.tag).toBe("run-1");
+  expect(payload.data.url).toContain("/runs/run-1?");
+  expect(payload.data.url).toContain(`deviceId=${linkedResponse.body.device.id}`);
+
+  const detailUrl = new URL(payload.data.url, "https://notify.example.com");
+  const detailResponse = await request(app)
+    .get(`/api/command-runs/run-1${detailUrl.search}`)
+    .expect(200);
+
+  expect(detailResponse.body.run.status).toBe("completed");
+  expect(detailResponse.body.run.displayCommandLabel).toBe("Deploy");
+  expect(detailResponse.body.run.logTail).toEqual(["Deploy finished"]);
+
+  detailUrl.searchParams.set("sig", "bad");
+  await request(app)
+    .get(`/api/command-runs/run-1${detailUrl.search}`)
+    .expect(403);
 });
 
 test("disables gone subscriptions after push failures", async () => {

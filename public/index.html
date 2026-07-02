@@ -82,6 +82,23 @@
         opacity: 0.55;
       }
 
+      .secondary-button {
+        width: auto;
+        margin: 10px 0 0;
+        padding: 9px 11px;
+        border: 1px solid rgba(148, 163, 184, 0.34);
+        background: rgba(15, 23, 42, 0.72);
+        color: #dbeafe;
+        font-size: 13px;
+      }
+
+      .copy-status {
+        min-height: 18px;
+        margin-top: 8px;
+        color: #93c5fd;
+        font-size: 12px;
+      }
+
       .status {
         margin-top: 16px;
         padding: 12px;
@@ -95,6 +112,89 @@
         margin-top: 16px;
         font-size: 12px;
         color: #93c5fd;
+      }
+
+      main.detail {
+        display: block;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        margin: 4px 0 12px;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0;
+      }
+
+      .badge.running {
+        background: rgba(125, 211, 252, 0.14);
+        color: #7dd3fc;
+      }
+
+      .badge.success {
+        background: rgba(74, 222, 128, 0.14);
+        color: #86efac;
+      }
+
+      .badge.failed {
+        background: rgba(251, 113, 133, 0.14);
+        color: #fda4af;
+      }
+
+      .detail-grid {
+        display: grid;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .field {
+        display: grid;
+        gap: 3px;
+        padding: 11px 12px;
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        border-radius: 10px;
+        background: rgba(2, 6, 23, 0.34);
+      }
+
+      .field span {
+        color: #8fa3bd;
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .field strong {
+        color: #f8fafc;
+        font-size: 14px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+
+      .log-block {
+        margin-top: 18px;
+      }
+
+      .log-block summary {
+        cursor: pointer;
+        color: #dbeafe;
+        font-weight: 800;
+      }
+
+      pre {
+        max-height: 260px;
+        overflow: auto;
+        margin: 10px 0 0;
+        padding: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        border-radius: 10px;
+        background: rgba(2, 6, 23, 0.58);
+        color: #dbeafe;
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
       }
     </style>
   </head>

@@ -110,6 +110,42 @@ class FirestoreNotificationStore {
     return null;
   }
 
+  async upsertCommandRun(run) {
+    await this._commandRunRef(run.runId).set(run, { merge: true });
+    const snapshot = await this._commandRunRef(run.runId).get();
+    return snapshot.exists ? snapshot.data() : run;
+  }
+
+  async getCommandRun(runId) {
+    const snapshot = await this._commandRunRef(runId).get();
+    return snapshot.exists ? snapshot.data() : null;
+  }
+
+  async cleanupCommandRuns({ olderThan, maxCount }) {
+    const snapshot = await this.db
+      .collection("commandRuns")
+      .orderBy("updatedAt", "desc")
+      .get();
+    const olderThanMillis = Date.parse(olderThan);
+    let removed = 0;
+    const deletes = [];
+
+    snapshot.docs.forEach((doc, index) => {
+      const run = doc.data();
+      const isOld =
+        !Number.isNaN(olderThanMillis) &&
+        commandRunMillis(run) < olderThanMillis;
+      const exceedsMax = Number.isInteger(maxCount) && index >= maxCount;
+      if (isOld || exceedsMax) {
+        removed += 1;
+        deletes.push(this._commandRunRef(doc.id).delete());
+      }
+    });
+
+    await Promise.all(deletes);
+    return removed;
+  }
+
   _pairingRef(pairingId) {
     return this.db.collection("pairingSessions").doc(pairingId);
   }
@@ -120,6 +156,10 @@ class FirestoreNotificationStore {
 
   _subscriptionRef(deviceId) {
     return this.db.collection("pushSubscriptions").doc(deviceId);
+  }
+
+  _commandRunRef(runId) {
+    return this.db.collection("commandRuns").doc(runId);
   }
 }
 
@@ -178,6 +218,11 @@ function validPendingPairing(pairing, pairingCode, isExpired) {
   if (pairing.pairingCode !== pairingCode) return null;
   if (isExpired(pairing.expiresAt)) return null;
   return pairing;
+}
+
+function commandRunMillis(run) {
+  const millis = Date.parse(run.updatedAt || run.finishedAt || run.startedAt);
+  return Number.isNaN(millis) ? 0 : millis;
 }
 
 module.exports = {

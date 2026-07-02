@@ -24,6 +24,7 @@ VAPID_PUBLIC_KEY=public_key_from_web_push
 VAPID_PRIVATE_KEY=private_key_from_web_push
 VAPID_SUBJECT=mailto:you@example.com
 DESKTOP_API_TOKEN=a_long_random_secret
+DETAIL_VIEW_SECRET=
 STORE_FILE=./data/notifications-store.json
 FIREBASE_PROJECT_ID=
 FIREBASE_SERVICE_ACCOUNT_JSON_B64=
@@ -70,9 +71,13 @@ VAPID_PUBLIC_KEY=public_key_from_web_push
 VAPID_PRIVATE_KEY=private_key_from_web_push
 VAPID_SUBJECT=mailto:you@example.com
 DESKTOP_API_TOKEN=a_long_random_secret
+DETAIL_VIEW_SECRET=another_long_random_secret
 FIREBASE_PROJECT_ID=app-release-center
 FIREBASE_SERVICE_ACCOUNT_JSON_B64=base64_encoded_service_account_json
 ```
+
+`DETAIL_VIEW_SECRET` signs notification detail links. If it is empty, the
+server falls back to `DESKTOP_API_TOKEN`.
 
 When `FIREBASE_PROJECT_ID` or `FIREBASE_SERVICE_ACCOUNT_JSON_B64` is present,
 the server stores pairings, linked devices, and push subscriptions in Firestore:
