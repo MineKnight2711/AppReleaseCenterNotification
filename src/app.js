@@ -10,6 +10,7 @@ const {
   commandRunSignature,
   deviceIds,
   deviceJson,
+  deviceScopes,
   isValidCommandRunSignature,
   isExpiredIso,
   normalizeRemoteLogLines,
@@ -27,6 +28,53 @@ const COMMAND_RUN_MAX_COUNT = 200;
 const DESKTOP_ONLINE_WINDOW_MS = 60 * 1000;
 const DEFAULT_DESKTOP_ID = "default";
 const MAX_LONG_POLL_MS = 25000;
+
+// Which scope each command type needs. Types that touch the machine rather
+// than a build are listed here before they are accepted, so landing them is a
+// whitelist change in normalizeRemoteCommand and nothing else.
+const COMMAND_TYPE_SCOPES = {
+  shell: "run",
+  script: "run",
+  fastlane: "run",
+  power: "power",
+  window: "window",
+  app: "window",
+};
+
+// Types that must name the machine they are for. Release commands keep
+// defaulting to DEFAULT_DESKTOP_ID for compatibility, but there is no safe
+// default for "shut down whichever desktop answered first".
+const DESKTOP_SCOPED_COMMAND_TYPES = ["power", "window", "app"];
+
+// Which queue a command waits in. The release lane is drained only when the
+// desktop is idle; the control lane is drained regardless, because "lock my
+// machine" is most needed exactly while a build is running.
+const COMMAND_TYPE_LANES = {
+  shell: "release",
+  script: "release",
+  fastlane: "release",
+  power: "control",
+  window: "control",
+  app: "control",
+};
+
+const ACCEPTED_COMMAND_TYPES = Object.keys(COMMAND_TYPE_LANES).filter(
+  (type) => type !== "window" && type !== "app",
+);
+
+const POWER_ACTIONS = [
+  "shutdown",
+  "restart",
+  "sleep",
+  "hibernate",
+  "lock",
+  "logoff",
+  "cancel",
+];
+
+// Long enough to walk away from the machine, short enough that a forgotten
+// command does not fire hours later.
+const MAX_POWER_DELAY_SECONDS = 600;
 
 function createApp(options = {}) {
   const config = options.config || process.env;
@@ -53,6 +101,8 @@ function createApp(options = {}) {
         status: "pending",
         source: stringValue(req.body.source) || "desktop",
         app: stringValue(req.body.app) || "app_release_center",
+        // Chosen by the desktop here; the phone only inherits them.
+        scopes: deviceScopes(req.body.scopes),
         createdAt: new Date().toISOString(),
         expiresAt,
       };
@@ -135,6 +185,8 @@ function createApp(options = {}) {
         linkedAt: now,
         lastSeenAt: now,
         controlTokenHash: secretHash(deviceControlToken),
+        // Inherited from the pairing the desktop created, never from the body.
+        scopes: deviceScopes(pairing.scopes),
       };
       await store.linkDevice({ pairingId: pairing.id, device, subscription });
 
@@ -177,6 +229,8 @@ function createApp(options = {}) {
         linkedAt: now,
         lastSeenAt: now,
         controlTokenHash: secretHash(deviceControlToken),
+        // Inherited from the pairing the desktop created, never from the body.
+        scopes: deviceScopes(pairing.scopes),
       };
       await store.linkDevice({ pairingId: pairing.id, device });
 
@@ -335,7 +389,37 @@ function createApp(options = {}) {
           Math.max(Number.parseInt(req.query.waitMs, 10) || 0, 0),
           MAX_LONG_POLL_MS,
         );
-        const commands = await waitForQueuedCommands(store, desktopId, waitMs);
+        const commands = await waitForQueuedCommands(
+          store,
+          desktopId,
+          waitMs,
+          "release",
+        );
+        res.json({ commands: commands.map(remoteCommandJson) });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  // The control lane. Separate from the release lane on purpose: the desktop
+  // drains this one even while a build holds the runner.
+  app.get(
+    "/api/desktop/control-commands",
+    requireDesktopAuth(config),
+    async (req, res, next) => {
+      try {
+        const desktopId = stringValue(req.query.desktopId) || DEFAULT_DESKTOP_ID;
+        const waitMs = Math.min(
+          Math.max(Number.parseInt(req.query.waitMs, 10) || 0, 0),
+          MAX_LONG_POLL_MS,
+        );
+        const commands = await waitForQueuedCommands(
+          store,
+          desktopId,
+          waitMs,
+          "control",
+        );
         res.json({ commands: commands.map(remoteCommandJson) });
       } catch (error) {
         next(error);
@@ -552,12 +636,13 @@ function requireMobileAuth(store) {
   };
 }
 
-async function waitForQueuedCommands(store, desktopId, waitMs) {
+async function waitForQueuedCommands(store, desktopId, waitMs, lane) {
   const deadline = Date.now() + waitMs;
   while (true) {
     const commands = await store.listRemoteCommands({
       status: "queued",
       targetDesktopId: desktopId,
+      lane,
       limit: 10,
     });
     if (commands.length > 0 || Date.now() >= deadline) return commands;
@@ -586,8 +671,20 @@ function desktopStateJson(desktop) {
 
 function normalizeRemoteCommand(body, device, now) {
   const type = stringValue(body.type);
-  if (!["shell", "script", "fastlane"].includes(type)) {
-    throw badRequest("Command type must be shell, script, or fastlane.");
+  if (!ACCEPTED_COMMAND_TYPES.includes(type)) {
+    throw badRequest(
+      `Command type must be one of ${ACCEPTED_COMMAND_TYPES.join(", ")}.`,
+    );
+  }
+
+  const requiredScope = COMMAND_TYPE_SCOPES[type];
+  if (!deviceScopes(device.scopes).includes(requiredScope)) {
+    throw forbidden(`This device is not allowed to send ${type} commands.`);
+  }
+
+  const targetDesktopId = stringValue(body.targetDesktopId);
+  if (!targetDesktopId && DESKTOP_SCOPED_COMMAND_TYPES.includes(type)) {
+    throw badRequest(`A ${type} command must name its target desktop.`);
   }
 
   const payload =
@@ -596,8 +693,9 @@ function normalizeRemoteCommand(body, device, now) {
   const command = {
     commandId,
     type,
+    lane: COMMAND_TYPE_LANES[type],
     status: "queued",
-    targetDesktopId: stringValue(body.targetDesktopId) || DEFAULT_DESKTOP_ID,
+    targetDesktopId: targetDesktopId || DEFAULT_DESKTOP_ID,
     createdByDeviceId: device.id,
     createdAt: now,
     updatedAt: now,
@@ -609,6 +707,21 @@ function normalizeRemoteCommand(body, device, now) {
 }
 
 function normalizeRemotePayload(type, payload) {
+  if (type === "power") {
+    const action = stringValue(payload.action).toLowerCase();
+    if (!POWER_ACTIONS.includes(action)) {
+      throw badRequest(`Power action must be one of ${POWER_ACTIONS.join(", ")}.`);
+    }
+    const requested = intOrNull(payload.delaySeconds) || 0;
+    return {
+      action,
+      delaySeconds: Math.min(Math.max(requested, 0), MAX_POWER_DELAY_SECONDS),
+      // The desktop still refuses this while a release is running unless the
+      // phone said so deliberately; this only carries the intent across.
+      force: payload.force === true,
+    };
+  }
+
   if (type === "shell") {
     const command = stringValue(payload.command);
     if (!command) throw badRequest("Shell command is required.");
@@ -648,6 +761,7 @@ function remoteCommandJson(command) {
   return {
     commandId: stringValue(command.commandId),
     type: stringValue(command.type),
+    lane: command.lane === "control" ? "control" : "release",
     status: stringValue(command.status) || "queued",
     targetDesktopId: stringValue(command.targetDesktopId) || DEFAULT_DESKTOP_ID,
     createdByDeviceId: stringValue(command.createdByDeviceId),

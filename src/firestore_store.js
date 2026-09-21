@@ -186,12 +186,13 @@ class FirestoreNotificationStore {
     return snapshot.exists ? snapshot.data() : null;
   }
 
-  async listRemoteCommands({ status, targetDesktopId, limit = 20 } = {}) {
+  async listRemoteCommands({ status, targetDesktopId, lane, limit = 20 } = {}) {
     let query = this.db.collection("remoteCommands");
     if (status) query = query.where("status", "==", status);
     const snapshot = await query.get();
     return snapshot.docs
       .map((doc) => doc.data())
+      .filter((command) => !lane || commandLane(command) === lane)
       .filter(
         (command) =>
           !targetDesktopId ||
@@ -326,6 +327,11 @@ function serviceAccountFromConfig(config) {
   } catch (error) {
     throw new Error(`Invalid Firebase service account JSON: ${error.message}`);
   }
+}
+
+// Commands queued before lanes existed are all release work.
+function commandLane(command) {
+  return command.lane === "control" ? "control" : "release";
 }
 
 async function updateIfExists(ref, patch) {

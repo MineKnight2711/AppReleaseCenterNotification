@@ -5,6 +5,8 @@ const MAX_LOG_TAIL_LINES = 20;
 const MAX_LOG_TAIL_BYTES = 4096;
 const MAX_REMOTE_LOG_LINES = 500;
 const MAX_REMOTE_LOG_BYTES = 128 * 1024;
+const KNOWN_DEVICE_SCOPES = ["run", "power", "window"];
+const DEFAULT_DEVICE_SCOPES = ["run"];
 
 function buildCommandPayload(event, options = {}) {
   const eventName = stringValue(event.event) || stringValue(event.status);
@@ -116,7 +118,23 @@ function deviceJson(device) {
     browser: stringValue(device.browser),
     linkedAt: isoDate(device.linkedAt),
     lastSeenAt: isoDate(device.lastSeenAt),
+    scopes: deviceScopes(device.scopes),
   };
+}
+
+/// What a linked phone is allowed to ask this desktop to do.
+///
+/// Scopes are set by the desktop when it creates the pairing and copied onto
+/// the device at link time, so a phone can never widen its own access. An
+/// unknown or missing value falls back to "run" alone, which is what every
+/// device linked before scopes existed is entitled to.
+function deviceScopes(value) {
+  if (!Array.isArray(value)) return [...DEFAULT_DEVICE_SCOPES];
+  const scopes = value
+    .map((entry) => stringValue(entry).toLowerCase())
+    .filter((entry) => KNOWN_DEVICE_SCOPES.includes(entry));
+  const unique = [...new Set(scopes)];
+  return unique.length > 0 ? unique : [...DEFAULT_DEVICE_SCOPES];
 }
 
 function deviceIds(value) {
@@ -308,12 +326,14 @@ function compactObject(value) {
 }
 
 module.exports = {
+  KNOWN_DEVICE_SCOPES,
   buildCommandPayload,
   commandRunFromEvent,
   commandRunJson,
   commandRunSignature,
   deviceIds,
   deviceJson,
+  deviceScopes,
   durationLabel,
   humanizeCommandLabel,
   isValidCommandRunSignature,

@@ -344,3 +344,210 @@ test("returns server error messages for notification failures", async () => {
 
   expect(response.body.error).toBe("store failed");
 });
+
+async function pairControlDevice(app, { pairingScopes, requestedScopes } = {}) {
+  const pairingResponse = await request(app)
+    .post("/api/pairings")
+    .set("Authorization", "Bearer secret")
+    .send(pairingScopes ? { source: "desktop", scopes: pairingScopes } : { source: "desktop" })
+    .expect(201);
+
+  const linkedResponse = await request(app)
+    .post("/api/control-devices")
+    .send({
+      pairingId: pairingResponse.body.pairingId,
+      pairingCode: pairingResponse.body.pairingCode,
+      deviceName: "Pixel",
+      platform: "Android",
+      ...(requestedScopes ? { scopes: requestedScopes } : {}),
+    })
+    .expect(201);
+
+  return {
+    token: linkedResponse.body.deviceControlToken,
+    device: linkedResponse.body.device,
+  };
+}
+
+test("links a device with the run scope when the pairing names none", async () => {
+  const { app } = testHarness();
+  const { token, device } = await pairControlDevice(app);
+
+  expect(device.scopes).toEqual(["run"]);
+
+  await request(app)
+    .post("/api/mobile/commands")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ type: "shell", payload: { command: "Get-Date" } })
+    .expect(201);
+});
+
+test("refuses a command type the device has no scope for", async () => {
+  const { app } = testHarness();
+  const { token, device } = await pairControlDevice(app, {
+    pairingScopes: ["power"],
+  });
+
+  expect(device.scopes).toEqual(["power"]);
+
+  const response = await request(app)
+    .post("/api/mobile/commands")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ type: "shell", payload: { command: "Get-Date" } })
+    .expect(403);
+
+  expect(response.body.error).toContain("not allowed");
+});
+
+test("ignores scopes a phone asks for at link time", async () => {
+  const { app } = testHarness();
+  const { token, device } = await pairControlDevice(app, {
+    pairingScopes: ["run"],
+    requestedScopes: ["run", "power", "window"],
+  });
+
+  // The desktop granted run only; the phone asking for more changes nothing.
+  expect(device.scopes).toEqual(["run"]);
+
+  await request(app)
+    .post("/api/mobile/commands")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ type: "shell", payload: { command: "Get-Date" } })
+    .expect(201);
+});
+
+test("queues a power command on the control lane", async () => {
+  const { app } = testHarness();
+  const { token } = await pairControlDevice(app, {
+    pairingScopes: ["run", "power"],
+  });
+
+  const response = await request(app)
+    .post("/api/mobile/commands")
+    .set("Authorization", `Bearer ${token}`)
+    .send({
+      type: "power",
+      targetDesktopId: "desk-1",
+      payload: { action: "shutdown", delaySeconds: 15 },
+    })
+    .expect(201);
+
+  expect(response.body.command.lane).toBe("control");
+  expect(response.body.command.payload).toEqual({
+    action: "shutdown",
+    delaySeconds: 15,
+    force: false,
+  });
+});
+
+test("keeps the release and control lanes apart", async () => {
+  const { app } = testHarness();
+  const { token } = await pairControlDevice(app, {
+    pairingScopes: ["run", "power"],
+  });
+
+  const shell = await request(app)
+    .post("/api/mobile/commands")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ type: "shell", targetDesktopId: "desk-1", payload: { command: "Get-Date" } })
+    .expect(201);
+  const power = await request(app)
+    .post("/api/mobile/commands")
+    .set("Authorization", `Bearer ${token}`)
+    .send({
+      type: "power",
+      targetDesktopId: "desk-1",
+      payload: { action: "lock" },
+    })
+    .expect(201);
+
+  const releaseQueue = await request(app)
+    .get("/api/desktop/commands?desktopId=desk-1")
+    .set("Authorization", "Bearer secret")
+    .expect(200);
+  const controlQueue = await request(app)
+    .get("/api/desktop/control-commands?desktopId=desk-1")
+    .set("Authorization", "Bearer secret")
+    .expect(200);
+
+  expect(releaseQueue.body.commands.map((entry) => entry.commandId)).toEqual([
+    shell.body.command.commandId,
+  ]);
+  expect(controlQueue.body.commands.map((entry) => entry.commandId)).toEqual([
+    power.body.command.commandId,
+  ]);
+});
+
+test("refuses a power command from a device without the power scope", async () => {
+  const { app } = testHarness();
+  const { token } = await pairControlDevice(app, { pairingScopes: ["run"] });
+
+  const response = await request(app)
+    .post("/api/mobile/commands")
+    .set("Authorization", `Bearer ${token}`)
+    .send({
+      type: "power",
+      targetDesktopId: "desk-1",
+      payload: { action: "shutdown" },
+    })
+    .expect(403);
+
+  expect(response.body.error).toContain("not allowed");
+});
+
+test("refuses a power command that does not name its desktop", async () => {
+  const { app } = testHarness();
+  const { token } = await pairControlDevice(app, {
+    pairingScopes: ["run", "power"],
+  });
+
+  const response = await request(app)
+    .post("/api/mobile/commands")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ type: "power", payload: { action: "shutdown" } })
+    .expect(400);
+
+  expect(response.body.error).toContain("target desktop");
+});
+
+test("rejects an unknown power action and clamps the delay", async () => {
+  const { app } = testHarness();
+  const { token } = await pairControlDevice(app, {
+    pairingScopes: ["run", "power"],
+  });
+
+  await request(app)
+    .post("/api/mobile/commands")
+    .set("Authorization", `Bearer ${token}`)
+    .send({
+      type: "power",
+      targetDesktopId: "desk-1",
+      payload: { action: "format" },
+    })
+    .expect(400);
+
+  const clamped = await request(app)
+    .post("/api/mobile/commands")
+    .set("Authorization", `Bearer ${token}`)
+    .send({
+      type: "power",
+      targetDesktopId: "desk-1",
+      payload: { action: "shutdown", delaySeconds: 99999 },
+    })
+    .expect(201);
+
+  expect(clamped.body.command.payload.delaySeconds).toBe(600);
+});
+
+test("still refuses window and app commands until that phase lands", async () => {
+  const { app } = testHarness();
+  const { token } = await pairControlDevice(app, {
+    pairingScopes: ["run", "power", "window"],
+  });
+
+  await request(app)
+    .post("/api/mobile/commands")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ type: "window", targetDesktopId: "desk-1", payload: { action: "list" } })
+    .expect(400);
+});

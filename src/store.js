@@ -183,10 +183,11 @@ class JsonNotificationStore {
     return state.remoteCommands[commandId] || null;
   }
 
-  async listRemoteCommands({ status, targetDesktopId, limit = 20 } = {}) {
+  async listRemoteCommands({ status, targetDesktopId, lane, limit = 20 } = {}) {
     const state = await this._read();
     return Object.values(state.remoteCommands)
       .filter((command) => !status || command.status === status)
+      .filter((command) => !lane || commandLane(command) === lane)
       .filter(
         (command) =>
           !targetDesktopId ||
@@ -305,6 +306,11 @@ function emptyState() {
     desktops: {},
     remoteCommands: {},
   };
+}
+
+// Commands queued before lanes existed are all release work.
+function commandLane(command) {
+  return command.lane === "control" ? "control" : "release";
 }
 
 function commandMillis(command) {

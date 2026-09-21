@@ -2,6 +2,8 @@ const {
   buildCommandPayload,
   commandRunFromEvent,
   commandRunSignature,
+  deviceJson,
+  deviceScopes,
   durationLabel,
   humanizeCommandLabel,
   isExpiredIso,
@@ -77,4 +79,17 @@ test("detects expired pairing times", () => {
 test("disables gone push subscriptions", () => {
   expect(shouldDisableSubscription({ statusCode: 410 })).toBe(true);
   expect(shouldDisableSubscription({ statusCode: 500 })).toBe(false);
+});
+
+test("falls back to the run scope for records written before scopes existed", () => {
+  expect(deviceScopes(undefined)).toEqual(["run"]);
+  expect(deviceScopes([])).toEqual(["run"]);
+  expect(deviceJson({ id: "d1" }).scopes).toEqual(["run"]);
+});
+
+test("keeps only known scopes and drops duplicates", () => {
+  expect(deviceScopes(["run", "power", "run"])).toEqual(["run", "power"]);
+  expect(deviceScopes(["POWER", "Window"])).toEqual(["power", "window"]);
+  expect(deviceScopes(["root", "admin"])).toEqual(["run"]);
+  expect(deviceScopes("power")).toEqual(["run"]);
 });
