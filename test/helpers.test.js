@@ -90,6 +90,7 @@ test("falls back to the run scope for records written before scopes existed", ()
 test("keeps only known scopes and drops duplicates", () => {
   expect(deviceScopes(["run", "power", "run"])).toEqual(["run", "power"]);
   expect(deviceScopes(["POWER", "Window"])).toEqual(["power", "window"]);
+  expect(deviceScopes(["unlock", "UNLOCK"])).toEqual(["unlock"]);
   expect(deviceScopes(["root", "admin"])).toEqual(["run"]);
   expect(deviceScopes("power")).toEqual(["run"]);
 });

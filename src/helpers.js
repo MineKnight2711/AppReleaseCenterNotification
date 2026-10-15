@@ -5,7 +5,7 @@ const MAX_LOG_TAIL_LINES = 20;
 const MAX_LOG_TAIL_BYTES = 4096;
 const MAX_REMOTE_LOG_LINES = 500;
 const MAX_REMOTE_LOG_BYTES = 128 * 1024;
-const KNOWN_DEVICE_SCOPES = ["run", "power", "window"];
+const KNOWN_DEVICE_SCOPES = ["run", "power", "window", "unlock", "ios"];
 const DEFAULT_DEVICE_SCOPES = ["run"];
 
 function buildCommandPayload(event, options = {}) {
@@ -119,6 +119,9 @@ function deviceJson(device) {
     linkedAt: isoDate(device.linkedAt),
     lastSeenAt: isoDate(device.lastSeenAt),
     scopes: deviceScopes(device.scopes),
+    // Whether the device gets release results through FCM; the token stays
+    // on the relay.
+    releasePush: Boolean(stringValue(device.fcmToken)),
   };
 }
 

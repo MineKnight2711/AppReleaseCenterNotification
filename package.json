@@ -2,26 +2,25 @@
   "name": "app-release-center-notifications",
   "private": true,
   "version": "0.1.0",
-  "description": "Self-hosted Web Push notification server for App Release Center.",
+  "description": "Web Push and remote-control relay for App Management Center, on Cloudflare Workers.",
   "engines": {
     "node": ">=20"
   },
-  "main": "src/index.js",
+  "main": "worker/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "schema": "wrangler d1 execute amc-relay --remote --file=worker/schema.sql",
+    "schema:local": "wrangler d1 execute amc-relay --local --file=worker/schema.sql",
     "test": "jest",
-    "lint": "node --check src/index.js && node --check src/app.js && node --check src/store.js && node --check src/firestore_store.js && node --check src/store_factory.js && node --check src/helpers.js && node --check public/app.js && node --check public/sw.js"
+    "verify": "node worker/verify.mjs",
+    "lint": "node --check src/helpers.js && node --check src/relay_core.js && node --check src/fcm.js && node --check public/app.js && node --check public/sw.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "firebase-admin": "^14.1.0",
-    "web-push": "^3.6.7"
+    "hono": "^4.13.8"
   },
   "devDependencies": {
     "jest": "^29.7.0",
-    "supertest": "^7.0.0"
+    "wrangler": "^4.135.0"
   }
 }

@@ -4,3 +4,7 @@ data/*.json
 coverage/
 .firebaserc
 functions/
+
+# Wrangler local secrets
+.dev.vars
+.wrangler/
